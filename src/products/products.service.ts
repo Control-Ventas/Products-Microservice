@@ -4,6 +4,8 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PrismaClient } from '@prisma/client';
 import { NotFoundError } from 'rxjs';
+import { RestarStockDto } from './dto/restarStock.dto';
+import { RpcException } from '@nestjs/microservices';
 
 @Injectable()
 export class ProductsService extends PrismaClient implements OnModuleInit {
@@ -33,7 +35,7 @@ export class ProductsService extends PrismaClient implements OnModuleInit {
     });
 
     if (!product) {
-      throw new NotFoundException(`Product #${id} not found`);
+      throw new RpcException(`Product #${id} not found`);
     }
 
     return product;
@@ -41,55 +43,79 @@ export class ProductsService extends PrismaClient implements OnModuleInit {
 
   async update(id: number, updateProductDto: UpdateProductDto) {
 
+    const {product_id: _, ...data} = updateProductDto;
+
     let updatedProduct;
     try {
       updatedProduct = await this.product.update({
-        where: { product_id: id },
-        data: updateProductDto
+        where: { product_id: id, available: true },
+        data: data
       })
     } catch (e) {
-      throw new NotFoundException(`Product #${id} not found`);
+      throw new RpcException(`Product #${id} not found`);
     }
 
 
     return updatedProduct;
   }
+
+
 
   async remove(id: number) {
     let product;
 
     try {
       product = await this.product.update({
-        where: { product_id: id },
+        where: { product_id: id, available: true },
         data: { available: false }
       })
     } catch (e) {
-      throw new NotFoundException(`Product #${id} not found`);
+      throw new RpcException(`Product #${id} not found`);
     }
 
 
     return product;
   }
 
-  async restarStock(id: number, cantidad: number) {
+  async restarStock(restarStockDto: RestarStockDto) {
     const product = await this.product.findUnique({
-      where: { product_id: id }
+      where: { product_id: restarStockDto.product_id }
     });
 
     if (!product) {
-      throw new NotFoundException(`Product #${id} not found`);
+      throw new RpcException(`Product #${restarStockDto.product_id} not found`);
     }
 
-    if (product.stock < cantidad) {
-      throw new NotFoundException(`The stock is not enough`);
+    if (product.stock < restarStockDto.cantidad) {
+      throw new RpcException(`The stock is not enough`);
     }
 
     const updatedProduct = await this.product.update({
-      where: { product_id: id },
-      data: { stock: product.stock - cantidad }
+      where: { product_id: restarStockDto.product_id },
+      data: { stock: product.stock - restarStockDto.cantidad }
     })
 
     return updatedProduct;
+  }
+
+  async validateProducts(ids: number[]){
+
+    ids = Array.from(new Set(ids))
+
+    const products = await this.product.findMany({
+      where: { 
+        product_id: {
+          in: ids
+        }
+       }
+    });
+
+    if (products.length !== ids.length) {
+      throw new RpcException(`Some products were not found`);
+    }
+
+    return products;
+
   }
 
 }
